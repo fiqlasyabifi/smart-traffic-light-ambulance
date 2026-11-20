@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "283726439426",
+    "firebase_url": "https://smart-traffic-light-rawa-d711e-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "smart-traffic-light-rawa-d711e",
+    "storage_bucket": "smart-traffic-light-rawa-d711e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:283726439426:android:e8abf7e5a62cc72243b31b",
+        "android_client_info": {
+          "package_name": "com.example.smarttrafficlight"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD_yvn-k3paBriO1QCi73qjc64dUu-BFiY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
