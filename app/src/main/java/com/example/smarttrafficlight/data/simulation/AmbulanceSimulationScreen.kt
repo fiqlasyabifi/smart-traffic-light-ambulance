@@ -1,6 +1,7 @@
 package com.example.smarttrafficlight.feature.simulation
 
 import android.os.SystemClock
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,11 +15,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,51 +29,83 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.font.FontWeight
+
 import com.example.smarttrafficlight.data.firebase.AmbulanceSimulationRepository
 import com.example.smarttrafficlight.data.firebase.TrafficMapConfig
 import com.example.smarttrafficlight.data.simulation.VirtualGpsSimulator
 import com.example.smarttrafficlight.data.simulation.VirtualGpsState
 import com.example.smarttrafficlight.feature.setup.SimulationSetup
+
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+
 import java.util.Locale
+
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+
 
 private val RedPrimary = Color(0xFFD52B3A)
 private val BackgroundLight = Color(0xFFF6F6F7)
 private val TextPrimary = Color(0xFF191B1F)
 private val TextSecondary = Color(0xFF686D76)
 private val SuccessGreen = Color(0xFF138052)
+private val BorderLight = Color(0xFFE5E6E9)
+
+private enum class FinishAction {
+    SUMMARY,
+    CANCEL
+}
+
+
+// =====================================================
+// AMBULANCE SIMULATION SCREEN
+// =====================================================
 
 @Composable
 fun AmbulanceSimulationScreen(
     config: TrafficMapConfig,
     setup: SimulationSetup,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    summaryContext: SimulationSummaryData? = null,
+    onSimulationFinished: (SimulationSummaryData) -> Unit = {}
 ) {
+
     val repository = remember {
         AmbulanceSimulationRepository()
     }
 
     val scope = rememberCoroutineScope()
 
+    // =================================================
+    // MEMBUAT VIRTUAL GPS
+    // =================================================
+
     val simulatorResult = remember(config, setup) {
+
         runCatching {
+
             VirtualGpsSimulator.forTrafficLight(
+
                 config = config,
+
                 trafficLightId = setup.trafficLight,
-                initialDistanceMeters = setup.initialDistance.toDouble(),
-                durationSeconds = setup.durationSeconds
+
+                initialDistanceMeters =
+                    setup.initialDistance.toDouble(),
+
+                durationSeconds =
+                    setup.durationSeconds
             )
         }
     }
@@ -81,11 +116,23 @@ fun AmbulanceSimulationScreen(
             setup.markerIntervalSeconds * 1000
             ).toLong().coerceAtLeast(100L)
 
+    // =================================================
+    // STATE SIMULASI
+    // =================================================
+
     var isRunning by remember(simulator) {
         mutableStateOf(false)
     }
 
     var isStarting by remember(simulator) {
+        mutableStateOf(false)
+    }
+
+    var isFinishing by remember(simulator) {
+        mutableStateOf(false)
+    }
+
+    var hasStarted by remember(simulator) {
         mutableStateOf(false)
     }
 
@@ -95,19 +142,185 @@ fun AmbulanceSimulationScreen(
         )
     }
 
+    var simulationStartedAt by remember(simulator) {
+        mutableStateOf<Long?>(null)
+    }
+
     var firebaseMessage by remember(simulator) {
-        mutableStateOf("Belum ada sesi yang dikirim.")
+        mutableStateOf(
+            "Belum ada sesi yang dikirim."
+        )
+    }
+
+    // State ketika penyimpanan akhir gagal.
+    // Data tetap disimpan agar dapat dicoba kembali.
+
+    var pendingFinalState by remember(simulator) {
+        mutableStateOf<VirtualGpsState?>(null)
+    }
+
+    var pendingFinishAction by remember(simulator) {
+        mutableStateOf<FinishAction?>(null)
     }
 
     // =================================================
-    // PERGERAKAN DAN PENGIRIMAN POSISI KE FIREBASE
+    // PEMBENTUK DATA RINGKASAN
     // =================================================
 
-    LaunchedEffect(isRunning, simulator, intervalMillis) {
+    fun createSummary(
+        finalState: VirtualGpsState
+    ): SimulationSummaryData {
+
+        val base = summaryContext
+            ?: SimulationSummaryData(
+
+                trafficLight = setup.trafficLight,
+
+                trafficGroup = setup.trafficGroup,
+
+                initialSignal = "—",
+
+                sourceLabel = "Tidak dilakukan",
+
+                vehicleCount = null,
+
+                densityLabel = null,
+
+                initialDistanceMeters =
+                    setup.initialDistance,
+
+                targetDurationSeconds =
+                    setup.durationSeconds,
+
+                actualDurationSeconds = 0.0
+            )
+
+        return base.copy(
+
+            actualDurationSeconds =
+                finalState.elapsedSeconds,
+
+            completedAtMillis =
+                System.currentTimeMillis()
+        )
+    }
+
+    // =================================================
+    // SIMPAN STATUS AKHIR FIREBASE
+    // =================================================
+
+    suspend fun persistPendingFinish() {
+
+        val finalState = pendingFinalState ?: return
+
+        val action = pendingFinishAction ?: return
+
+        if (isFinishing) return
+
+        isFinishing = true
+
+        try {
+
+            awaitFinishSession(
+
+                repository = repository,
+
+                finalState = finalState
+            )
+
+            pendingFinalState = null
+            pendingFinishAction = null
+
+            firebaseMessage = when (action) {
+
+                FinishAction.SUMMARY ->
+                    "Sesi selesai. Posisi akhir berhasil disimpan."
+
+                FinishAction.CANCEL ->
+                    "Simulasi berhasil dibatalkan."
+            }
+
+            when (action) {
+
+                FinishAction.SUMMARY -> {
+
+                    // Ringkasan hanya dibuka setelah Firebase
+                    // berhasil menyimpan posisi akhir.
+
+                    onSimulationFinished(
+                        createSummary(finalState)
+                    )
+                }
+
+                FinishAction.CANCEL -> {
+
+                    // Simulasi dibatalkan, tidak masuk riwayat.
+
+                    onBack()
+                }
+            }
+
+        } catch (error: Exception) {
+
+            firebaseMessage =
+                "Gagal menyimpan status akhir: " +
+                        (
+                                error.localizedMessage
+                                    ?: "Kesalahan Firebase"
+                                )
+
+            // pendingFinalState tidak dikosongkan.
+            // Pengguna dapat mencoba menyimpan kembali.
+
+        } finally {
+
+            isFinishing = false
+        }
+    }
+
+    // =================================================
+    // MEMINTA PENYELESAIAN SIMULASI
+    // =================================================
+
+    fun requestFinish(
+        finalState: VirtualGpsState,
+        action: FinishAction
+    ) {
+
+        if (
+            isFinishing ||
+            pendingFinalState != null
+        ) {
+            return
+        }
+
+        pendingFinalState = finalState
+
+        pendingFinishAction = action
+
+        // Menghentikan loop GPS sebelum menyimpan final state.
+
+        isRunning = false
+
+        scope.launch {
+            persistPendingFinish()
+        }
+    }
+
+    // =================================================
+    // LOOP PERGERAKAN GPS DAN FIREBASE
+    // =================================================
+
+    LaunchedEffect(
+        isRunning,
+        simulator,
+        intervalMillis
+    ) {
 
         if (isRunning && simulator != null) {
 
-            val startTime = SystemClock.elapsedRealtime()
+            val startTime = simulationStartedAt
+                ?: SystemClock.elapsedRealtime()
 
             while (true) {
 
@@ -116,40 +329,43 @@ fun AmbulanceSimulationScreen(
                 val elapsedMillis =
                     SystemClock.elapsedRealtime() - startTime
 
-                val newState = simulator.positionAt(elapsedMillis)
+                val newState = simulator.positionAt(
+                    elapsedMillis
+                )
 
-                // Perbarui tampilan terlebih dahulu.
                 gpsState = newState
+
+                // =====================================
+                // AMBULANS SUDAH TIBA
+                // =====================================
 
                 if (newState.status == "ARRIVED") {
 
-                    // Simpan posisi akhir dan selesaikan sesi.
-                    try {
-                        awaitFinishSession(
-                            repository = repository,
-                            finalState = newState
-                        )
+                    firebaseMessage =
+                        "Ambulans tiba. Menyimpan posisi akhir..."
 
-                        firebaseMessage =
-                            "Sesi selesai. Posisi akhir berhasil disimpan."
-                    } catch (error: Exception) {
+                    requestFinish(
+                        finalState = newState,
+                        action = FinishAction.SUMMARY
+                    )
 
-                        firebaseMessage =
-                            "Ambulans tiba, tetapi penyimpanan akhir gagal: " +
-                                    (error.localizedMessage ?: "Kesalahan Firebase")
-                    }
-
-                    isRunning = false
                     break
                 }
 
-                // Kirim posisi terbaru setiap interval.
+                // =====================================
+                // KIRIM POSISI TERBARU KE FIREBASE
+                // =====================================
+
                 try {
 
                     awaitUpdatePosition(
+
                         repository = repository,
+
                         state = newState,
-                        trafficLightId = setup.trafficLight
+
+                        trafficLightId =
+                            setup.trafficLight
                     )
 
                     firebaseMessage =
@@ -159,81 +375,270 @@ fun AmbulanceSimulationScreen(
 
                     firebaseMessage =
                         "Gagal mengirim posisi: " +
-                                (error.localizedMessage ?: "Kesalahan Firebase")
+                                (
+                                        error.localizedMessage
+                                            ?: "Kesalahan Firebase"
+                                        )
 
                     // Simulasi lokal tetap berjalan.
-                    // Pengiriman akan dicoba lagi pada interval berikutnya.
+                    // Update akan dicoba pada interval berikutnya.
                 }
             }
         }
     }
+
+    // =================================================
+    // FUNGSI MULAI SIMULASI
+    // =================================================
+
+    fun startSimulation() {
+
+        if (
+            simulator == null ||
+            isStarting ||
+            isRunning ||
+            isFinishing ||
+            pendingFinalState != null
+        ) {
+            return
+        }
+
+        scope.launch {
+
+            isStarting = true
+
+            firebaseMessage =
+                "Menyimpan sesi awal ke Firebase..."
+
+            try {
+
+                val initialState = simulator.positionAt(0L)
+
+                val controllerGroup =
+                    config.trafficLights[
+                        setup.trafficLight
+                    ]?.group
+                        ?: throw IllegalStateException(
+                            "Kelompok traffic light tidak ditemukan."
+                        )
+
+                awaitStartSession(
+
+                    repository = repository,
+
+                    setup = setup,
+
+                    controllerGroup = controllerGroup,
+
+                    initialState = initialState
+                )
+
+                gpsState = initialState
+
+                simulationStartedAt =
+                    SystemClock.elapsedRealtime()
+
+                hasStarted = true
+
+                firebaseMessage =
+                    "Terhubung: sesi awal berhasil disimpan."
+
+                isRunning = true
+
+            } catch (error: Exception) {
+
+                firebaseMessage =
+                    "Gagal memulai simulasi: " +
+                            (
+                                    error.localizedMessage
+                                        ?: "Kesalahan Firebase"
+                                    )
+
+            } finally {
+
+                isStarting = false
+            }
+        }
+    }
+
+    // =================================================
+    // FUNGSI SELESAIKAN SIMULASI MANUAL
+    // =================================================
+
+    fun finishSimulationManually() {
+
+        if (
+            simulator == null ||
+            !isRunning ||
+            isFinishing
+        ) {
+            return
+        }
+
+        val startTime = simulationStartedAt
+            ?: SystemClock.elapsedRealtime()
+
+        val elapsedMillis = (
+                SystemClock.elapsedRealtime() - startTime
+                ).coerceAtLeast(0L)
+
+        val finalState = simulator
+            .positionAt(elapsedMillis)
+            .let { state ->
+
+                if (state.status == "ARRIVED") {
+                    state
+                } else {
+                    state.copy(status = "FINISHED")
+                }
+            }
+
+        gpsState = finalState
+
+        requestFinish(
+            finalState = finalState,
+            action = FinishAction.SUMMARY
+        )
+    }
+
+    // =================================================
+    // FUNGSI BATALKAN SIMULASI
+    // =================================================
+
+    fun cancelSimulation() {
+
+        if (
+            simulator == null ||
+            !isRunning ||
+            isFinishing
+        ) {
+            return
+        }
+
+        val startTime = simulationStartedAt
+            ?: SystemClock.elapsedRealtime()
+
+        val elapsedMillis = (
+                SystemClock.elapsedRealtime() - startTime
+                ).coerceAtLeast(0L)
+
+        val cancelledState = simulator
+            .positionAt(elapsedMillis)
+            .copy(status = "CANCELLED")
+
+        gpsState = cancelledState
+
+        requestFinish(
+            finalState = cancelledState,
+            action = FinishAction.CANCEL
+        )
+    }
+
+    // =================================================
+    // TAMPILAN
+    // =================================================
 
     Scaffold(
         containerColor = BackgroundLight
     ) { innerPadding ->
 
         Column(
+
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 20.dp),
+                .padding(
+                    horizontal = 20.dp,
+                    vertical = 20.dp
+                ),
+
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
+            // =========================================
             // HEADER
+            // =========================================
+
             Row(
+
                 modifier = Modifier.fillMaxWidth(),
+
                 verticalAlignment = Alignment.CenterVertically,
+
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
+
             ) {
 
                 Button(
+
                     onClick = onBack,
+
+                    enabled = !isRunning &&
+                            !isStarting &&
+                            !isFinishing &&
+                            pendingFinalState == null,
+
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White,
-                        contentColor = TextPrimary
+                        contentColor = TextPrimary,
+                        disabledContainerColor = BorderLight
                     )
+
                 ) {
+
                     Text("Kembali")
                 }
 
                 Column {
+
                     Text(
-                        "Simulasi Ambulans",
+                        text = "Simulasi Ambulans",
                         fontSize = 21.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
 
                     Text(
-                        "Virtual GPS Rawamangun",
+                        text = "Virtual GPS Rawamangun",
                         fontSize = 13.sp,
                         color = TextSecondary
                     )
                 }
             }
 
+            // =========================================
+            // SIMULATOR ERROR
+            // =========================================
+
             if (simulator == null) {
 
                 Surface(
+
                     modifier = Modifier.fillMaxWidth(),
+
                     shape = RoundedCornerShape(20.dp),
+
                     color = Color.White
+
                 ) {
+
                     Column(
                         modifier = Modifier.padding(20.dp)
                     ) {
+
                         Text(
-                            "Simulasi tidak dapat dibuat",
+                            text = "Simulasi tidak dapat dibuat",
                             fontWeight = FontWeight.Bold,
                             color = RedPrimary
                         )
 
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(
+                            modifier = Modifier.height(8.dp)
+                        )
 
                         Text(
-                            simulatorResult.exceptionOrNull()
+                            text = simulatorResult.exceptionOrNull()
                                 ?.localizedMessage
                                 ?: "Periksa konfigurasi Firebase."
                         )
@@ -245,73 +650,117 @@ fun AmbulanceSimulationScreen(
                 val current = gpsState
                     ?: simulator.positionAt(0L)
 
+                val remainingSeconds = (
+                        setup.durationSeconds -
+                                current.elapsedSeconds
+                        ).coerceAtLeast(0.0)
+
+                // =====================================
                 // INFORMASI TUJUAN
+                // =====================================
+
                 Surface(
+
                     modifier = Modifier.fillMaxWidth(),
+
                     shape = RoundedCornerShape(22.dp),
+
                     color = Color.White
+
                 ) {
+
                     Column(
+
                         modifier = Modifier.padding(20.dp),
+
                         verticalArrangement = Arrangement.spacedBy(8.dp)
+
                     ) {
 
                         Text(
-                            "Tujuan ambulans",
+                            text = "Tujuan ambulans",
                             color = TextSecondary
                         )
 
                         Text(
-                            setup.trafficLight,
+                            text = setup.trafficLight,
                             fontSize = 34.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = RedPrimary
                         )
 
                         Text(
-                            "Kelompok ${setup.trafficGroup}",
+                            text = "Kelompok ${setup.trafficGroup}",
                             color = TextSecondary
                         )
 
                         Text(
-                            "Arah pendekatan: ${
-                                config.trafficLights[setup.trafficLight]?.approach
-                            }",
+                            text = "Arah pendekatan: " +
+                                    (
+                                            config.trafficLights[
+                                                setup.trafficLight
+                                            ]?.approach ?: "Tidak tersedia"
+                                            ),
                             color = TextPrimary
                         )
                     }
                 }
 
-                // STATUS AMBULANS
+                // =====================================
+                // STATUS DAN PROGRESS
+                // =====================================
+
                 Surface(
+
                     modifier = Modifier.fillMaxWidth(),
+
                     shape = RoundedCornerShape(22.dp),
+
                     color = Color.White
+
                 ) {
+
                     Column(
+
                         modifier = Modifier.padding(20.dp),
+
                         verticalArrangement = Arrangement.spacedBy(14.dp)
+
                     ) {
 
                         Text(
-                            "Status ambulans",
+                            text = "Status ambulans",
                             color = TextSecondary,
                             fontSize = 14.sp
                         )
 
                         Text(
+
                             text = when {
+
                                 current.status == "ARRIVED" ->
                                     "TIBA DI TUJUAN"
+
+                                current.status == "CANCELLED" ->
+                                    "DIBATALKAN"
+
+                                current.status == "FINISHED" ->
+                                    "SELESAI MANUAL"
 
                                 isRunning ->
                                     "AMBULANS BERGERAK"
 
+                                hasStarted ->
+                                    "SIMULASI DIHENTIKAN"
+
                                 else ->
                                     "SIAP DIMULAI"
                             },
+
                             fontSize = 22.sp,
+
                             fontWeight = FontWeight.ExtraBold,
+
                             color = if (current.status == "ARRIVED") {
                                 SuccessGreen
                             } else {
@@ -324,80 +773,112 @@ fun AmbulanceSimulationScreen(
                         )
 
                         Row(
+
                             modifier = Modifier.fillMaxWidth(),
+
                             horizontalArrangement = Arrangement.SpaceBetween
+
                         ) {
+
                             Text(
-                                "${(current.progress * 100).toInt()}%",
+                                text = "${(current.progress * 100).toInt()}%",
                                 fontWeight = FontWeight.Bold
                             )
 
                             Text(
-                                "${current.elapsedSeconds.toInt()} / " +
-                                        "${setup.durationSeconds} detik",
+                                text =
+                                    "${current.elapsedSeconds.toInt()} / " +
+                                            "${setup.durationSeconds} detik",
                                 color = TextSecondary
                             )
                         }
+
+                        CoordinateRow(
+                            label = "Sisa waktu target",
+                            value = "${remainingSeconds.toInt()} detik"
+                        )
                     }
                 }
 
+                // =====================================
                 // DATA GPS
+                // =====================================
+
                 Surface(
+
                     modifier = Modifier.fillMaxWidth(),
+
                     shape = RoundedCornerShape(22.dp),
+
                     color = Color.White
+
                 ) {
+
                     Column(
+
                         modifier = Modifier.padding(20.dp),
+
                         verticalArrangement = Arrangement.spacedBy(15.dp)
+
                     ) {
 
                         Text(
-                            "Koordinat GPS virtual",
+                            text = "Koordinat GPS virtual",
                             fontWeight = FontWeight.Bold,
                             fontSize = 17.sp
                         )
 
                         CoordinateRow(
-                            "Latitude",
-                            formatCoordinate(current.latitude)
+                            label = "Latitude",
+                            value = formatCoordinate(current.latitude)
                         )
 
                         CoordinateRow(
-                            "Longitude",
-                            formatCoordinate(current.longitude)
+                            label = "Longitude",
+                            value = formatCoordinate(current.longitude)
                         )
 
                         CoordinateRow(
-                            "Jarak ditempuh",
-                            "${current.distanceTravelledMeters.formatOneDecimal()} m"
+                            label = "Jarak ditempuh",
+                            value = "${current.distanceTravelledMeters.formatOneDecimal()} m"
                         )
 
                         CoordinateRow(
-                            "Jarak tersisa",
-                            "${current.distanceRemainingMeters.formatOneDecimal()} m"
+                            label = "Sisa jarak ke tujuan",
+                            value = "${current.distanceRemainingMeters.formatOneDecimal()} m"
                         )
 
                         CoordinateRow(
-                            "Kecepatan virtual",
-                            "${current.speedMetersPerSecond.formatOneDecimal()} m/dtk"
+                            label = "Kecepatan virtual",
+                            value = "${current.speedMetersPerSecond.formatOneDecimal()} m/dtk"
                         )
                     }
                 }
 
+                // =====================================
                 // PENGATURAN
+                // =====================================
+
                 Surface(
+
                     modifier = Modifier.fillMaxWidth(),
+
                     shape = RoundedCornerShape(22.dp),
+
                     color = Color.White
+
                 ) {
+
                     Column(
+
                         modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+
+                        verticalArrangement = Arrangement.spacedBy(9.dp)
+
                     ) {
 
                         Text(
-                            "Pengaturan simulasi",
+                            text = "Pengaturan simulasi",
                             fontWeight = FontWeight.Bold
                         )
 
@@ -407,7 +888,7 @@ fun AmbulanceSimulationScreen(
                         )
 
                         CoordinateRow(
-                            "Durasi",
+                            "Durasi target",
                             "${setup.durationSeconds} detik"
                         )
 
@@ -418,109 +899,191 @@ fun AmbulanceSimulationScreen(
                     }
                 }
 
+                // =====================================
                 // STATUS FIREBASE
+                // =====================================
+
                 Surface(
+
                     modifier = Modifier.fillMaxWidth(),
+
                     shape = RoundedCornerShape(18.dp),
+
                     color = Color.White
+
                 ) {
+
                     Text(
+
                         text = firebaseMessage,
+
                         modifier = Modifier.padding(16.dp),
+
                         color = if (
                             firebaseMessage.startsWith("Terhubung") ||
-                            firebaseMessage.startsWith("Sesi selesai")
+                            firebaseMessage.startsWith("Sesi selesai") ||
+                            firebaseMessage.startsWith("Simulasi berhasil")
                         ) {
                             SuccessGreen
                         } else {
                             TextSecondary
                         },
+
                         fontSize = 12.sp,
+
                         lineHeight = 18.sp
                     )
                 }
 
-                // TOMBOL MULAI / ULANGI
-                Button(
-                    onClick = {
+                // =====================================
+                // TOMBOL SAAT SEDANG BERGERAK
+                // =====================================
 
-                        if (!isStarting && !isRunning) {
+                if (isRunning) {
 
-                            scope.launch {
+                    Button(
 
-                                isStarting = true
-                                firebaseMessage =
-                                    "Menyimpan sesi awal ke Firebase..."
-
-                                try {
-
-                                    val initialState =
-                                        simulator.positionAt(0L)
-
-                                    val controllerGroup =
-                                        config.trafficLights[
-                                            setup.trafficLight
-                                        ]?.group
-                                            ?: throw IllegalStateException(
-                                                "Kelompok traffic light tidak ditemukan."
-                                            )
-
-                                    awaitStartSession(
-                                        repository = repository,
-                                        setup = setup,
-                                        controllerGroup = controllerGroup,
-                                        initialState = initialState
-                                    )
-
-                                    gpsState = initialState
-
-                                    firebaseMessage =
-                                        "Terhubung: sesi awal berhasil disimpan."
-
-                                    isRunning = true
-
-                                } catch (error: Exception) {
-
-                                    firebaseMessage =
-                                        "Gagal memulai simulasi: " +
-                                                (error.localizedMessage
-                                                    ?: "Kesalahan Firebase")
-
-                                } finally {
-
-                                    isStarting = false
-                                }
-                            }
-                        }
-                    },
-                    enabled = !isRunning && !isStarting,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp),
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = RedPrimary,
-                        disabledContainerColor = Color.Gray
-                    )
-                ) {
-
-                    Text(
-                        text = when {
-                            isStarting -> "Menghubungkan Firebase..."
-                            isRunning -> "Ambulans Bergerak"
-                            current.status == "ARRIVED" -> "Ulangi Simulasi"
-                            else -> "Mulai Simulasi"
+                        onClick = {
+                            finishSimulationManually()
                         },
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+
+                        enabled = !isFinishing,
+
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+
+                        shape = CircleShape,
+
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = RedPrimary,
+                            disabledContainerColor = Color.Gray
+                        )
+
+                    ) {
+
+                        Text(
+                            text = if (isFinishing) {
+                                "Menyelesaikan Simulasi..."
+                            } else {
+                                "Selesaikan Simulasi"
+                            },
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Button(
+
+                        onClick = {
+                            cancelSimulation()
+                        },
+
+                        enabled = !isFinishing,
+
+                        modifier = Modifier.fillMaxWidth(),
+
+                        shape = CircleShape,
+
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = TextPrimary,
+                            disabledContainerColor = BorderLight
+                        )
+
+                    ) {
+
+                        Text("Batalkan")
+                    }
+
+                } else if (pendingFinalState != null) {
+
+                    // =================================
+                    // COBA ULANG SIMPAN FINAL STATE
+                    // =================================
+
+                    Button(
+
+                        onClick = {
+                            scope.launch {
+                                persistPendingFinish()
+                            }
+                        },
+
+                        enabled = !isFinishing,
+
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+
+                        shape = CircleShape,
+
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = RedPrimary
+                        )
+
+                    ) {
+
+                        Text(
+                            text = if (isFinishing) {
+                                "Menyimpan..."
+                            } else {
+                                "Coba Simpan Lagi"
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                } else if (!hasStarted) {
+
+                    // =================================
+                    // MULAI SIMULASI
+                    // =================================
+
+                    Button(
+
+                        onClick = {
+                            startSimulation()
+                        },
+
+                        enabled = !isStarting && !isFinishing,
+
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+
+                        shape = CircleShape,
+
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = RedPrimary,
+                            disabledContainerColor = Color.Gray
+                        )
+
+                    ) {
+
+                        Text(
+                            text = if (isStarting) {
+                                "Menghubungkan Firebase..."
+                            } else {
+                                "Mulai Simulasi"
+                            },
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
 
                 Text(
-                    "GPS ini merupakan koordinat virtual. " +
-                            "Posisi simulasi dikirim ke Firebase, bukan GPS fisik HP.",
+
+                    text =
+                        "GPS ini merupakan koordinat virtual. " +
+                                "Posisi simulasi dikirim ke Firebase, " +
+                                "bukan GPS fisik HP.",
+
                     color = TextSecondary,
+
                     fontSize = 11.sp,
+
                     lineHeight = 16.sp
                 )
             }
@@ -528,8 +1091,9 @@ fun AmbulanceSimulationScreen(
     }
 }
 
+
 // =====================================================
-// FUNGSI MENUNGGU HASIL OPERASI FIREBASE
+// FIREBASE HELPER
 // =====================================================
 
 private suspend fun awaitStartSession(
@@ -538,19 +1102,27 @@ private suspend fun awaitStartSession(
     controllerGroup: String,
     initialState: VirtualGpsState
 ) {
+
     suspendCancellableCoroutine<Unit> { continuation ->
 
         repository.startSession(
+
             setup = setup,
+
             controllerGroup = controllerGroup,
+
             initialState = initialState
+
         ) { success, error ->
 
             if (continuation.isActive) {
 
                 if (success) {
+
                     continuation.resume(Unit)
+
                 } else {
+
                     continuation.resumeWithException(
                         IllegalStateException(
                             error ?: "Gagal menyimpan sesi awal."
@@ -562,23 +1134,31 @@ private suspend fun awaitStartSession(
     }
 }
 
+
 private suspend fun awaitUpdatePosition(
     repository: AmbulanceSimulationRepository,
     state: VirtualGpsState,
     trafficLightId: String
 ) {
+
     suspendCancellableCoroutine<Unit> { continuation ->
 
         repository.updatePosition(
+
             state = state,
+
             trafficLightId = trafficLightId
+
         ) { success, error ->
 
             if (continuation.isActive) {
 
                 if (success) {
+
                     continuation.resume(Unit)
+
                 } else {
+
                     continuation.resumeWithException(
                         IllegalStateException(
                             error ?: "Gagal memperbarui posisi."
@@ -590,21 +1170,28 @@ private suspend fun awaitUpdatePosition(
     }
 }
 
+
 private suspend fun awaitFinishSession(
     repository: AmbulanceSimulationRepository,
     finalState: VirtualGpsState
 ) {
+
     suspendCancellableCoroutine<Unit> { continuation ->
 
         repository.finishSession(
+
             finalState = finalState
+
         ) { success, error ->
 
             if (continuation.isActive) {
 
                 if (success) {
+
                     continuation.resume(Unit)
+
                 } else {
+
                     continuation.resumeWithException(
                         IllegalStateException(
                             error ?: "Gagal menyelesaikan sesi."
@@ -616,19 +1203,24 @@ private suspend fun awaitFinishSession(
     }
 }
 
+
 // =====================================================
-// KOMPONEN TAMPILAN
+// PROGRESS BAR
 // =====================================================
 
 @Composable
 private fun GpsProgressBar(
     progress: Float
 ) {
+
     Canvas(
+
         modifier = Modifier
             .fillMaxWidth()
             .height(10.dp)
+
     ) {
+
         drawRoundRect(
             color = Color(0xFFE5E6E9),
             cornerRadius = CornerRadius(20f)
@@ -637,36 +1229,51 @@ private fun GpsProgressBar(
         val safeProgress = progress.coerceIn(0f, 1f)
 
         if (safeProgress > 0f) {
+
             drawRoundRect(
+
                 color = RedPrimary,
+
                 size = Size(
                     width = size.width * safeProgress,
                     height = size.height
                 ),
+
                 cornerRadius = CornerRadius(20f)
             )
         }
     }
 }
 
+
+// =====================================================
+// BARIS KOORDINAT / INFORMASI
+// =====================================================
+
 @Composable
 private fun CoordinateRow(
     label: String,
     value: String
 ) {
+
     Row(
+
         modifier = Modifier.fillMaxWidth(),
+
         horizontalArrangement = Arrangement.SpaceBetween,
+
         verticalAlignment = Alignment.CenterVertically
+
     ) {
+
         Text(
-            label,
+            text = label,
             color = TextSecondary,
             fontSize = 13.sp
         )
 
         Text(
-            value,
+            text = value,
             color = TextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold
@@ -674,10 +1281,28 @@ private fun CoordinateRow(
     }
 }
 
-private fun formatCoordinate(value: Double): String {
-    return String.format(Locale.US, "%.7f", value)
+
+// =====================================================
+// FORMAT KOORDINAT
+// =====================================================
+
+private fun formatCoordinate(
+    value: Double
+): String {
+
+    return String.format(
+        Locale.US,
+        "%.7f",
+        value
+    )
 }
 
+
 private fun Double.formatOneDecimal(): String {
-    return String.format(Locale.US, "%.1f", this)
+
+    return String.format(
+        Locale.US,
+        "%.1f",
+        this
+    )
 }

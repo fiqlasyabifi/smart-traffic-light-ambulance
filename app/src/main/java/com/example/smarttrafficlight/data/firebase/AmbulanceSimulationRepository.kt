@@ -8,26 +8,24 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 
 /**
- * Repository untuk mengirim posisi GPS virtual ambulans
+ * Repository untuk menyimpan konfigurasi sesi dan posisi GPS virtual ambulans
  * ke Firebase Realtime Database.
  *
  * Struktur:
  * ambulance/sessions/{uid}/simulation
  * ambulance/sessions/{uid}/live
+ *
+ * Status simulasi dan status GPS dipisahkan:
+ * - simulation/status: running, completed, cancelled, finished, failed
+ * - live/status: MOVING, ARRIVED, CANCELLED, FINISHED, dan seterusnya
  */
 class AmbulanceSimulationRepository(
-    private val database: FirebaseDatabase =
-        FirebaseDatabase.getInstance(),
-
-    private val auth: FirebaseAuth =
-        FirebaseAuth.getInstance()
+    private val database: FirebaseDatabase = FirebaseDatabase.getInstance(),
+    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) {
 
-    /**
-     * Mendapatkan referensi sesi pengguna yang sedang login.
-     */
+    /** Mendapatkan referensi sesi untuk pengguna yang sedang login. */
     private fun getSessionReference(): DatabaseReference? {
-
         val uid = auth.currentUser?.uid ?: return null
 
         return database
@@ -37,8 +35,8 @@ class AmbulanceSimulationRepository(
     }
 
     /**
-     * Memulai sesi simulasi dan menyimpan
-     * konfigurasi serta posisi awal ambulans.
+     * Memulai sesi simulasi dan menyimpan konfigurasi serta posisi awal.
+     * started_at dan live.updated_at menggunakan waktu server Firebase.
      */
     fun startSession(
         setup: SimulationSetup,
@@ -46,18 +44,14 @@ class AmbulanceSimulationRepository(
         initialState: VirtualGpsState,
         onComplete: (Boolean, String?) -> Unit
     ) {
-
         val sessionReference = getSessionReference()
 
         if (sessionReference == null) {
-            onComplete(
-                false,
-                "Pengguna belum login ke Firebase."
-            )
+            onComplete(false, "Pengguna belum login ke Firebase.")
             return
         }
 
-        val simulationData = mapOf(
+        val simulationData = mapOf<String, Any>(
             "target_traffic_light" to setup.trafficLight,
             "display_group" to setup.trafficGroup,
             "controller_group" to controllerGroup,
@@ -73,16 +67,13 @@ class AmbulanceSimulationRepository(
             .child("simulation")
             .setValue(simulationData)
             .addOnSuccessListener {
-
                 sessionReference
                     .child("live")
                     .setValue(createLiveData(initialState, setup.trafficLight))
                     .addOnSuccessListener {
-
                         onComplete(true, null)
                     }
                     .addOnFailureListener { error ->
-
                         onComplete(
                             false,
                             error.localizedMessage
@@ -91,7 +82,6 @@ class AmbulanceSimulationRepository(
                     }
             }
             .addOnFailureListener { error ->
-
                 onComplete(
                     false,
                     error.localizedMessage
@@ -100,13 +90,7 @@ class AmbulanceSimulationRepository(
             }
     }
 
-    /**
-     * Memperbarui posisi ambulans secara berkala.
-     *
-     * Fungsi ini dipanggil setiap interval marker:
-     * 0,5 detik, 1 detik, atau 2 detik.
-     */
-
+    /** Memperbarui posisi ambulans secara berkala. */
     fun updatePosition(
         state: VirtualGpsState,
         trafficLightId: String,
@@ -121,9 +105,7 @@ class AmbulanceSimulationRepository(
 
         sessionReference
             .child("live")
-            .updateChildren(
-                createLiveData(state, trafficLightId)
-            )
+            .updateChildren(createLiveData(state, trafficLightId))
             .addOnSuccessListener {
                 onComplete(true, null)
             }
@@ -137,25 +119,37 @@ class AmbulanceSimulationRepository(
     }
 
     /**
-     * Menyelesaikan sesi simulasi.
+     * Menyimpan status akhir sesi.
+     *
+     * Penting: sebelumnya semua status akhir selalu ditulis sebagai
+     * simulation/status = completed. Hal itu membuat backend salah membaca
+     * sesi CANCELLED sebagai AMBULANCE_ARRIVED. Sekarang status simulasi
+     * diturunkan dari finalState.status.
      */
     fun finishSession(
         finalState: VirtualGpsState,
         onComplete: (Boolean, String?) -> Unit
     ) {
-
         val sessionReference = getSessionReference()
 
         if (sessionReference == null) {
-            onComplete(
-                false,
-                "Pengguna belum login ke Firebase."
-            )
+            onComplete(false, "Pengguna belum login ke Firebase.")
             return
         }
 
-        val finalUpdates = mapOf(
-            "simulation/status" to "completed",
+        val normalizedLiveStatus = finalState.status.trim().uppercase()
+
+        val simulationStatus = when (normalizedLiveStatus) {
+            "ARRIVED" -> "completed"
+            "CANCELLED", "CANCELED" -> "cancelled"
+            "FINISHED" -> "finished"
+            "FAILED" -> "failed"
+            "STOPPED" -> "stopped"
+            else -> "finished"
+        }
+
+        val finalUpdates = mutableMapOf<String, Any>(
+            "simulation/status" to simulationStatus,
             "simulation/finished_at" to ServerValue.TIMESTAMP,
 
             "live/latitude" to finalState.latitude,
@@ -164,12 +158,16 @@ class AmbulanceSimulationRepository(
                     finalState.distanceTravelledMeters,
             "live/distance_remaining_m" to
                     finalState.distanceRemainingMeters,
-            "live/elapsed_seconds" to
-                    finalState.elapsedSeconds,
+            "live/elapsed_seconds" to finalState.elapsedSeconds,
             "live/progress" to finalState.progress,
-            "live/status" to finalState.status,
+            "live/status" to normalizedLiveStatus,
             "live/updated_at" to ServerValue.TIMESTAMP
         )
+
+        // Timestamp khusus pembatalan memudahkan audit di Firebase.
+        if (simulationStatus == "cancelled") {
+            finalUpdates["simulation/cancelled_at"] = ServerValue.TIMESTAMP
+        }
 
         sessionReference
             .updateChildren(finalUpdates)
@@ -185,36 +183,21 @@ class AmbulanceSimulationRepository(
             }
     }
 
-    /**
-     * Membentuk data posisi terbaru untuk Firebase.
-     */
+    /** Membentuk data posisi terbaru yang ditulis ke node live. */
     private fun createLiveData(
         state: VirtualGpsState,
         trafficLightId: String
     ): Map<String, Any> {
-
         return mapOf(
             "target_traffic_light" to trafficLightId,
-
             "latitude" to state.latitude,
             "longitude" to state.longitude,
-
-            "distance_travelled_m" to
-                    state.distanceTravelledMeters,
-
-            "distance_remaining_m" to
-                    state.distanceRemainingMeters,
-
-            "elapsed_seconds" to
-                    state.elapsedSeconds,
-
+            "distance_travelled_m" to state.distanceTravelledMeters,
+            "distance_remaining_m" to state.distanceRemainingMeters,
+            "elapsed_seconds" to state.elapsedSeconds,
             "progress" to state.progress,
-
-            "speed_mps" to
-                    state.speedMetersPerSecond,
-
-            "status" to state.status,
-
+            "speed_mps" to state.speedMetersPerSecond,
+            "status" to state.status.trim().uppercase(),
             "updated_at" to ServerValue.TIMESTAMP
         )
     }

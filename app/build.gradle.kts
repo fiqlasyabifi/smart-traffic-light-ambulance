@@ -55,6 +55,8 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.navigation.compose)
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("com.google.ai.edge.litert:litert:2.3.2")
 
     // Firebase
     implementation(platform(libs.firebase.bom))
