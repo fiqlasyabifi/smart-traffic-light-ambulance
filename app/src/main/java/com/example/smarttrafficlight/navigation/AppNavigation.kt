@@ -41,6 +41,7 @@ import com.example.smarttrafficlight.data.firebase.TrafficStatusRepository
 import com.example.smarttrafficlight.data.firebase.SimulationHistoryRecord
 import com.example.smarttrafficlight.data.firebase.SimulationHistoryRepository
 
+import com.example.smarttrafficlight.feature.analysis.CameraScreen
 import com.example.smarttrafficlight.feature.analysis.EditorRoiScreen
 import com.example.smarttrafficlight.feature.analysis.PhotoAnalysisScreen
 import com.example.smarttrafficlight.feature.analysis.PhotoUploadScreen
@@ -111,6 +112,18 @@ fun AppNavigation() {
     }
 
     var selectedPhotoRoi by remember {
+        mutableStateOf<RoiSelection?>(null)
+    }
+
+    // =====================================================
+    // STATE KAMERA HP
+    // =====================================================
+
+    var selectedCameraUri by remember {
+        mutableStateOf<Uri?>(null)
+    }
+
+    var selectedCameraRoi by remember {
         mutableStateOf<RoiSelection?>(null)
     }
 
@@ -382,6 +395,12 @@ fun AppNavigation() {
 
                     selectedPhotoRoi = null
 
+                    // Reset data kamera HP.
+
+                    selectedCameraUri = null
+
+                    selectedCameraRoi = null
+
                     // Reset data analisis video.
 
                     selectedVideo = null
@@ -484,6 +503,10 @@ fun AppNavigation() {
 
                     selectedAnalysisSource = "Kamera HP"
 
+                    selectedCameraUri = null
+
+                    selectedCameraRoi = null
+
                     analysisVehicleCount = null
 
                     navController.navigate("camera")
@@ -524,17 +547,54 @@ fun AppNavigation() {
 
         composable("camera") {
 
-            PlaceholderScreen(
+            val trafficLight = simulationSetup.trafficLight
 
-                title = "Kamera HP",
+            val trafficGroup = when (trafficLight.uppercase()) {
+                "TL1", "TL2" -> "A"
+                "TL5", "TL6" -> "B"
+                "TL3", "TL4" -> "C"
+                else -> simulationSetup.trafficGroup
+            }
 
-                subtitle =
-                    "Fitur pengambilan gambar langsung dari kamera HP " +
-                            "akan dikembangkan pada tahap berikutnya.",
-
+            CameraScreen(
+                trafficLight = trafficLight,
+                trafficGroup = trafficGroup,
                 onBack = {
-
                     navController.popBackStack()
+                },
+                onCaptureForAnalysis = { uri, roi ->
+                    selectedCameraUri = uri
+                    selectedCameraRoi = roi
+                    navController.navigate("camera-analysis")
+                }
+            )
+        }
+
+        // =================================================
+        // 5B. HASIL ANALISIS FRAME DARI KAMERA HP
+        // =================================================
+
+        composable("camera-analysis") {
+
+            PhotoAnalysisScreen(
+                imageUri = selectedCameraUri,
+                roi = selectedCameraRoi,
+                trafficLight = simulationSetup.trafficLight,
+                trafficGroup = simulationSetup.trafficGroup,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onRetake = {
+                    selectedCameraUri = null
+                    selectedCameraRoi = null
+                    analysisVehicleCount = null
+                    navController.popBackStack("camera", false)
+                },
+                onStartSimulation = {
+                    navController.navigate("ambulance-simulation")
+                },
+                onAnalysisCompleted = { result ->
+                    analysisVehicleCount = result.counts.total
                 }
             )
         }
