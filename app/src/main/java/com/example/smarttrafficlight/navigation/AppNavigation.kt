@@ -41,8 +41,9 @@ import com.example.smarttrafficlight.data.firebase.TrafficStatusRepository
 import com.example.smarttrafficlight.data.firebase.SimulationHistoryRecord
 import com.example.smarttrafficlight.data.firebase.SimulationHistoryRepository
 
-import com.example.smarttrafficlight.feature.analysis.CameraScreen
 import com.example.smarttrafficlight.feature.analysis.EditorRoiScreen
+import com.example.smarttrafficlight.feature.analysis.CameraScreen
+import com.example.smarttrafficlight.feature.analysis.WebcamLaptopScreen
 import com.example.smarttrafficlight.feature.analysis.PhotoAnalysisScreen
 import com.example.smarttrafficlight.feature.analysis.PhotoUploadScreen
 import com.example.smarttrafficlight.feature.analysis.RoiSelection
@@ -116,18 +117,6 @@ fun AppNavigation() {
     }
 
     // =====================================================
-    // STATE KAMERA HP
-    // =====================================================
-
-    var selectedCameraUri by remember {
-        mutableStateOf<Uri?>(null)
-    }
-
-    var selectedCameraRoi by remember {
-        mutableStateOf<RoiSelection?>(null)
-    }
-
-    // =====================================================
     // STATE VIDEO
     // =====================================================
 
@@ -153,6 +142,10 @@ fun AppNavigation() {
 
     var analysisVehicleCount by remember {
         mutableStateOf<Int?>(null)
+    }
+
+    var analysisDensityLabel by remember {
+        mutableStateOf<String?>(null)
     }
 
     // =====================================================
@@ -395,12 +388,6 @@ fun AppNavigation() {
 
                     selectedPhotoRoi = null
 
-                    // Reset data kamera HP.
-
-                    selectedCameraUri = null
-
-                    selectedCameraRoi = null
-
                     // Reset data analisis video.
 
                     selectedVideo = null
@@ -414,6 +401,7 @@ fun AppNavigation() {
                     selectedAnalysisSource = "Tidak dilakukan"
 
                     analysisVehicleCount = null
+                    analysisDensityLabel = null
 
                     currentSimulationSummary = null
 
@@ -450,6 +438,7 @@ fun AppNavigation() {
                     selectedAnalysisSource = "Belum dipilih"
 
                     analysisVehicleCount = null
+                    analysisDensityLabel = null
 
                     navController.navigate("source-selection")
                 },
@@ -461,6 +450,7 @@ fun AppNavigation() {
                     selectedAnalysisSource = "Tidak dilakukan"
 
                     analysisVehicleCount = null
+                    analysisDensityLabel = null
 
                     navController.navigate("ambulance-simulation")
                 }
@@ -503,11 +493,8 @@ fun AppNavigation() {
 
                     selectedAnalysisSource = "Kamera HP"
 
-                    selectedCameraUri = null
-
-                    selectedCameraRoi = null
-
                     analysisVehicleCount = null
+                    analysisDensityLabel = null
 
                     navController.navigate("camera")
                 },
@@ -517,6 +504,7 @@ fun AppNavigation() {
                     selectedAnalysisSource = "Foto"
 
                     analysisVehicleCount = null
+                    analysisDensityLabel = null
 
                     navController.navigate("upload-photo")
                 },
@@ -526,6 +514,7 @@ fun AppNavigation() {
                     selectedAnalysisSource = "Webcam Laptop"
 
                     analysisVehicleCount = null
+                    analysisDensityLabel = null
 
                     navController.navigate("webcam")
                 },
@@ -535,6 +524,7 @@ fun AppNavigation() {
                     selectedAnalysisSource = "Video"
 
                     analysisVehicleCount = null
+                    analysisDensityLabel = null
 
                     navController.navigate("upload-video")
                 }
@@ -548,7 +538,6 @@ fun AppNavigation() {
         composable("camera") {
 
             val trafficLight = simulationSetup.trafficLight
-
             val trafficGroup = when (trafficLight.uppercase()) {
                 "TL1", "TL2" -> "A"
                 "TL5", "TL6" -> "B"
@@ -559,42 +548,14 @@ fun AppNavigation() {
             CameraScreen(
                 trafficLight = trafficLight,
                 trafficGroup = trafficGroup,
-                onBack = {
-                    navController.popBackStack()
-                },
+                onBack = { navController.popBackStack() },
                 onCaptureForAnalysis = { uri, roi ->
-                    selectedCameraUri = uri
-                    selectedCameraRoi = roi
-                    navController.navigate("camera-analysis")
-                }
-            )
-        }
-
-        // =================================================
-        // 5B. HASIL ANALISIS FRAME DARI KAMERA HP
-        // =================================================
-
-        composable("camera-analysis") {
-
-            PhotoAnalysisScreen(
-                imageUri = selectedCameraUri,
-                roi = selectedCameraRoi,
-                trafficLight = simulationSetup.trafficLight,
-                trafficGroup = simulationSetup.trafficGroup,
-                onBack = {
-                    navController.popBackStack()
-                },
-                onRetake = {
-                    selectedCameraUri = null
-                    selectedCameraRoi = null
+                    selectedPhotoUri = uri
+                    selectedPhotoRoi = roi
+                    selectedAnalysisSource = "Kamera HP"
                     analysisVehicleCount = null
-                    navController.popBackStack("camera", false)
-                },
-                onStartSimulation = {
-                    navController.navigate("ambulance-simulation")
-                },
-                onAnalysisCompleted = { result ->
-                    analysisVehicleCount = result.counts.total
+                    analysisDensityLabel = null
+                    navController.navigate("photo-analysis")
                 }
             )
         }
@@ -637,6 +598,7 @@ fun AppNavigation() {
                     selectedPhotoRoi = null
 
                     analysisVehicleCount = null
+                    analysisDensityLabel = null
                 },
 
                 onBack = {
@@ -708,13 +670,16 @@ fun AppNavigation() {
                 onRetake = {
 
                     selectedPhotoRoi = null
-
                     analysisVehicleCount = null
+                    analysisDensityLabel = null
 
-                    navController.popBackStack(
-                        "upload-photo",
-                        false
-                    )
+                    val sourceRoute = when (selectedAnalysisSource) {
+                        "Kamera HP" -> "camera"
+                        "Webcam Laptop" -> "webcam"
+                        else -> "upload-photo"
+                    }
+
+                    navController.popBackStack(sourceRoute, false)
                 },
 
                 onStartSimulation = {
@@ -738,22 +703,27 @@ fun AppNavigation() {
 
         composable("webcam") {
 
-            PlaceholderScreen(
+            val trafficLight = simulationSetup.trafficLight
+            val trafficGroup = when (trafficLight.uppercase()) {
+                "TL1", "TL2" -> "A"
+                "TL5", "TL6" -> "B"
+                "TL3", "TL4" -> "C"
+                else -> simulationSetup.trafficGroup
+            }
 
-                title = "Webcam Laptop",
-
-                subtitle =
-                    "Fitur pengambilan gambar melalui webcam laptop " +
-                            "akan dikembangkan pada tahap berikutnya.",
-
-                onBack = {
-
-                    navController.popBackStack()
+            WebcamLaptopScreen(
+                trafficLight = trafficLight,
+                trafficGroup = trafficGroup,
+                onBack = { navController.popBackStack() },
+                onUseResult = { vehicleCount, densityLabel ->
+                    selectedAnalysisSource = "Webcam Laptop"
+                    analysisVehicleCount = vehicleCount
+                    analysisDensityLabel = densityLabel
+                    navController.navigate("ambulance-simulation")
                 }
             )
         }
 
-        // =================================================
         // 10. UNGGAH VIDEO
         // =================================================
 
@@ -777,6 +747,7 @@ fun AppNavigation() {
                     selectedVideoRoi = null
 
                     analysisVehicleCount = null
+                    analysisDensityLabel = null
 
                     navController.navigate("video-roi")
                 }
@@ -889,7 +860,7 @@ fun AppNavigation() {
                                 analysisVehicleCount,
 
                             densityLabel =
-                                null,
+                                analysisDensityLabel,
 
                             initialDistanceMeters =
                                 simulationSetup.initialDistance,

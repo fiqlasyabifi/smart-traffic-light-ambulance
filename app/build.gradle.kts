@@ -46,15 +46,6 @@ android {
 }
 
 dependencies {
-    // CameraX untuk preview dan analisis frame kamera secara real-time.
-    val cameraXVersion = "1.7.0"
-    implementation("androidx.camera:camera-core:$cameraXVersion")
-    implementation("androidx.camera:camera-camera2:$cameraXVersion")
-    implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
-    implementation("androidx.camera:camera-view:$cameraXVersion")
-
-    // LocalLifecycleOwner untuk mengikat CameraX dengan lifecycle Compose.
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.1")
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
@@ -64,6 +55,15 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.navigation.compose)
+
+    // CameraX untuk fitur Kamera HP
+    val cameraXVersion = "1.7.0"
+    implementation("androidx.camera:camera-core:$cameraXVersion")
+    implementation("androidx.camera:camera-camera2:$cameraXVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
+    implementation("androidx.camera:camera-view:$cameraXVersion")
+    // LocalLifecycleOwner dipakai oleh CameraScreen Compose.
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.1")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.google.ai.edge.litert:litert:2.3.2")
 
