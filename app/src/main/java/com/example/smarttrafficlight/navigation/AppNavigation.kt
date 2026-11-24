@@ -57,6 +57,9 @@ import com.example.smarttrafficlight.feature.analysis.VideoSelection
 import com.example.smarttrafficlight.feature.analysis.VideoUploadScreen
 
 import com.example.smarttrafficlight.feature.history.HistoryScreen
+import com.example.smarttrafficlight.feature.splash.SplashScreen
+
+import kotlinx.coroutines.delay
 
 import com.example.smarttrafficlight.feature.settings.DensitySettingsScreen
 
@@ -87,6 +90,19 @@ fun AppNavigation() {
     // =====================================================
 
     val navController = rememberNavController()
+
+    // =====================================================
+    // SPLASH SCREEN
+    // =====================================================
+
+    var showSplash by remember {
+        mutableStateOf(true)
+    }
+
+    LaunchedEffect(Unit) {
+        delay(2500)
+        showSplash = false
+    }
 
     // =====================================================
     // REPOSITORY
@@ -375,680 +391,731 @@ fun AppNavigation() {
     // NAVIGASI APLIKASI
     // =====================================================
 
-    NavHost(
+    if (showSplash) {
 
-        navController = navController,
+        SplashScreen()
 
-        startDestination = "home"
+    } else {
 
-    ) {
+        NavHost(
 
-        // =================================================
-        // 1. HOME / DASHBOARD
-        // =================================================
+            navController = navController,
 
-        composable("home") {
-            HomeScreen(
-                onStartSimulation = {
-                    navController.navigate("setup")
-                },
-                onOpenHistory = {
-                    navController.navigate("history")
-                },
-                onOpenDensitySettings = {
-                    navController.navigate("density-settings") {
-                        launchSingleTop = true
+            startDestination = "home"
+
+        ) {
+
+            // =================================================
+            // 1. HOME / DASHBOARD
+            // =================================================
+
+            composable("home") {
+                HomeScreen(
+                    onStartSimulation = {
+                        navController.navigate("setup")
+                    },
+                    onOpenHistory = {
+                        navController.navigate("history")
+                    },
+                    onOpenDensitySettings = {
+                        navController.navigate("density-settings") {
+                            launchSingleTop = true
+                        }
+                    },
+                    uiState = dashboardStatus.toHomeUiState()
+                )
+            }
+
+            // =================================================
+            // PENGATURAN KLASIFIKASI KEPADATAN
+            // =================================================
+
+            composable("density-settings") {
+                DensitySettingsScreen(
+                    onBack = {
+                        navController.popBackStack()
                     }
-                },
-                uiState = dashboardStatus.toHomeUiState()
-            )
-        }
-
-        // =================================================
-        // PENGATURAN KLASIFIKASI KEPADATAN
-        // =================================================
-
-        composable("density-settings") {
-            DensitySettingsScreen(
-                onBack = {
-                    navController.popBackStack()
-                }
-            )
-        }
-
-        // =================================================
-        // 2. SETUP SIMULASI
-        // =================================================
-
-        composable("setup") {
-
-            SetupScreen(
-
-                onBack = {
-
-                    navController.popBackStack()
-                },
-
-                onContinue = { setup ->
-
-                    simulationSetup = setup
-
-                    // Reset data analisis foto.
-
-                    selectedPhotoUri = null
-
-                    selectedPhotoRoi = null
-
-                    // Reset data analisis video.
-
-                    selectedVideo = null
-
-                    selectedVideoRoi = null
-
-                    // Reset sumber analisis.
-
-                    initialSignal = "—"
-
-                    selectedAnalysisSource = "Tidak dilakukan"
-
-                    analysisVehicleCount = null
-                    analysisDensityLabel = null
-
-                    currentSimulationSummary = null
-
-                    navController.navigate("phase-check")
-                }
-            )
-        }
-
-        // =================================================
-        // 3. PEMERIKSAAN FASE LAMPU
-        // =================================================
-
-        composable("phase-check") {
-
-            PhaseCheckScreen(
-
-                trafficLight = simulationSetup.trafficLight,
-
-                trafficGroup = simulationSetup.trafficGroup,
-
-                phase = dashboardStatus.toTrafficPhase(
-                    simulationSetup.trafficLight
-                ),
-
-                onBack = {
-
-                    navController.popBackStack()
-                },
-
-                onContinueRed = {
-
-                    initialSignal = "MERAH"
-
-                    selectedAnalysisSource = "Belum dipilih"
-
-                    analysisVehicleCount = null
-                    analysisDensityLabel = null
-
-                    navController.navigate("source-selection")
-                },
-
-                onContinueGreen = {
-
-                    initialSignal = "HIJAU"
-
-                    selectedAnalysisSource = "Tidak dilakukan"
-
-                    analysisVehicleCount = null
-                    analysisDensityLabel = null
-
-                    navController.navigate("ambulance-simulation")
-                }
-            )
-        }
-
-        // =================================================
-        // 4. PILIH SUMBER ANALISIS
-        // =================================================
-
-        composable("source-selection") {
-
-            val trafficLight = simulationSetup.trafficLight
-
-            val trafficGroup = when (
-                trafficLight.uppercase()
-            ) {
-
-                "TL1", "TL2" -> "A"
-
-                "TL5", "TL6" -> "B"
-
-                "TL3", "TL4" -> "C"
-
-                else -> simulationSetup.trafficGroup
+                )
             }
 
-            SourceSelectionScreen(
+            // =================================================
+            // 2. SETUP SIMULASI
+            // =================================================
 
-                trafficLight = trafficLight,
+            composable("setup") {
 
-                trafficGroup = trafficGroup,
+                SetupScreen(
 
-                onBack = {
+                    onBack = {
 
-                    navController.popBackStack()
-                },
+                        navController.popBackStack()
+                    },
 
-                onCameraClick = {
+                    onContinue = { setup ->
 
-                    selectedAnalysisSource = "Kamera HP"
+                        simulationSetup = setup
 
-                    analysisVehicleCount = null
-                    analysisDensityLabel = null
+                        // Reset data analisis foto.
 
-                    navController.navigate("camera")
-                },
-
-                onPhotoClick = {
-
-                    selectedAnalysisSource = "Foto"
-
-                    analysisVehicleCount = null
-                    analysisDensityLabel = null
-
-                    navController.navigate("upload-photo")
-                },
-
-                onWebcamClick = {
-
-                    selectedAnalysisSource = "Webcam Laptop"
-
-                    analysisVehicleCount = null
-                    analysisDensityLabel = null
-
-                    navController.navigate("webcam")
-                },
-
-                onVideoClick = {
-
-                    selectedAnalysisSource = "Video"
-
-                    analysisVehicleCount = null
-                    analysisDensityLabel = null
-
-                    navController.navigate("upload-video")
-                }
-            )
-        }
-
-        // =================================================
-        // 5. KAMERA HP
-        // =================================================
-
-        composable("camera") {
-
-            val trafficLight = simulationSetup.trafficLight
-            val trafficGroup = when (trafficLight.uppercase()) {
-                "TL1", "TL2" -> "A"
-                "TL5", "TL6" -> "B"
-                "TL3", "TL4" -> "C"
-                else -> simulationSetup.trafficGroup
-            }
-
-            CameraScreen(
-                trafficLight = trafficLight,
-                trafficGroup = trafficGroup,
-                onBack = { navController.popBackStack() },
-                onCaptureForAnalysis = { uri, roi ->
-                    selectedPhotoUri = uri
-                    selectedPhotoRoi = roi
-                    selectedAnalysisSource = "Kamera HP"
-                    analysisVehicleCount = null
-                    analysisDensityLabel = null
-                    navController.navigate("photo-analysis")
-                }
-            )
-        }
-
-        // =================================================
-        // 6. UNGGAH FOTO
-        // =================================================
-
-        composable("upload-photo") {
-
-            val trafficLight = simulationSetup.trafficLight
-
-            val trafficGroup = when (
-                trafficLight.uppercase()
-            ) {
-
-                "TL1", "TL2" -> "A"
-
-                "TL5", "TL6" -> "B"
-
-                "TL3", "TL4" -> "C"
-
-                else -> simulationSetup.trafficGroup
-            }
-
-            PhotoUploadScreen(
-
-                trafficLight = trafficLight,
-
-                trafficGroup = trafficGroup,
-
-                selectedImageUri = selectedPhotoUri,
-
-                onImageSelected = { uri ->
-
-                    selectedPhotoUri = uri
-
-                    // ROI lama tidak berlaku jika foto diganti.
-
-                    selectedPhotoRoi = null
-
-                    analysisVehicleCount = null
-                    analysisDensityLabel = null
-                },
-
-                onBack = {
-
-                    navController.popBackStack()
-                },
-
-                onContinue = {
-
-                    if (selectedPhotoUri != null) {
+                        selectedPhotoUri = null
 
                         selectedPhotoRoi = null
 
-                        navController.navigate("photo-roi")
+                        // Reset data analisis video.
+
+                        selectedVideo = null
+
+                        selectedVideoRoi = null
+
+                        // Reset sumber analisis.
+
+                        initialSignal = "—"
+
+                        selectedAnalysisSource = "Tidak dilakukan"
+
+                        analysisVehicleCount = null
+                        analysisDensityLabel = null
+
+                        currentSimulationSummary = null
+
+                        navController.navigate("phase-check")
                     }
-                }
-            )
-        }
-
-        // =================================================
-        // 7. EDITOR POLYGON ROI FOTO
-        // =================================================
-
-        composable("photo-roi") {
-
-            EditorRoiScreen(
-
-                imageUri = selectedPhotoUri,
-
-                trafficLight = simulationSetup.trafficLight,
-
-                trafficGroup = simulationSetup.trafficGroup,
-
-                onBack = {
-
-                    navController.popBackStack()
-                },
-
-                onContinue = { roi ->
-
-                    selectedPhotoRoi = roi
-
-                    navController.navigate("photo-analysis")
-                }
-            )
-        }
-
-        // =================================================
-        // 8. HASIL ANALISIS FOTO
-        // =================================================
-
-        composable("photo-analysis") {
-
-            PhotoAnalysisScreen(
-
-                imageUri = selectedPhotoUri,
-
-                roi = selectedPhotoRoi,
-
-                trafficLight = simulationSetup.trafficLight,
-
-                trafficGroup = simulationSetup.trafficGroup,
-
-                onBack = {
-
-                    navController.popBackStack()
-                },
-
-                onRetake = {
-
-                    selectedPhotoRoi = null
-                    analysisVehicleCount = null
-                    analysisDensityLabel = null
-
-                    val sourceRoute = when (selectedAnalysisSource) {
-                        "Kamera HP" -> "camera"
-                        "Webcam Laptop" -> "webcam"
-                        else -> "upload-photo"
-                    }
-
-                    navController.popBackStack(sourceRoute, false)
-                },
-
-                onStartSimulation = {
-
-                    navController.navigate(
-                        "ambulance-simulation"
-                    )
-                },
-
-                densityConfig = densityConfig,
-
-                onAnalysisCompleted = { result ->
-                    analysisVehicleCount = result.counts.total
-                },
-
-                onDensityClassified = { vehicleCount, densityLabel ->
-                    analysisVehicleCount = vehicleCount
-                    analysisDensityLabel = densityLabel
-                }
-            )
-        }
-
-        // =================================================
-        // 9. WEBCAM LAPTOP
-        // =================================================
-
-        composable("webcam") {
-
-            val trafficLight = simulationSetup.trafficLight
-            val trafficGroup = when (trafficLight.uppercase()) {
-                "TL1", "TL2" -> "A"
-                "TL5", "TL6" -> "B"
-                "TL3", "TL4" -> "C"
-                else -> simulationSetup.trafficGroup
+                )
             }
 
-            WebcamLaptopScreen(
-                trafficLight = trafficLight,
-                trafficGroup = trafficGroup,
-                onBack = { navController.popBackStack() },
-                onUseResult = { vehicleCount, densityLabel ->
-                    selectedAnalysisSource = "Webcam Laptop"
-                    analysisVehicleCount = vehicleCount
-                    analysisDensityLabel = densityLabel
-                    navController.navigate("ambulance-simulation")
+            // =================================================
+            // 3. PEMERIKSAAN FASE LAMPU
+            // =================================================
+
+            composable("phase-check") {
+
+                PhaseCheckScreen(
+
+                    trafficLight = simulationSetup.trafficLight,
+
+                    trafficGroup = simulationSetup.trafficGroup,
+
+                    phase = dashboardStatus.toTrafficPhase(
+                        simulationSetup.trafficLight
+                    ),
+
+                    onBack = {
+
+                        navController.popBackStack()
+                    },
+
+                    onContinueRed = {
+
+                        initialSignal = "MERAH"
+
+                        selectedAnalysisSource = "Belum dipilih"
+
+                        analysisVehicleCount = null
+                        analysisDensityLabel = null
+
+                        navController.navigate("source-selection")
+                    },
+
+                    onContinueGreen = {
+
+                        initialSignal = "HIJAU"
+
+                        selectedAnalysisSource = "Tidak dilakukan"
+
+                        analysisVehicleCount = null
+                        analysisDensityLabel = null
+
+                        navController.navigate("ambulance-simulation")
+                    }
+                )
+            }
+
+            // =================================================
+            // 4. PILIH SUMBER ANALISIS
+            // =================================================
+
+            composable("source-selection") {
+
+                val trafficLight = simulationSetup.trafficLight
+
+                val trafficGroup = when (
+                    trafficLight.uppercase()
+                ) {
+
+                    "TL1", "TL2" -> "A"
+
+                    "TL5", "TL6" -> "B"
+
+                    "TL3", "TL4" -> "C"
+
+                    else -> simulationSetup.trafficGroup
                 }
-            )
-        }
 
-        // 10. UNGGAH VIDEO
-        // =================================================
+                SourceSelectionScreen(
 
-        composable("upload-video") {
+                    trafficLight = trafficLight,
 
-            VideoUploadScreen(
+                    trafficGroup = trafficGroup,
 
-                trafficLight = simulationSetup.trafficLight,
+                    onBack = {
 
-                trafficGroup = simulationSetup.trafficGroup,
+                        navController.popBackStack()
+                    },
 
-                onBack = {
+                    onCameraClick = {
 
-                    navController.popBackStack()
-                },
+                        selectedAnalysisSource = "Kamera HP"
 
-                onContinue = { video ->
+                        analysisVehicleCount = null
+                        analysisDensityLabel = null
 
-                    selectedVideo = video
+                        navController.navigate("camera")
+                    },
 
-                    selectedVideoRoi = null
+                    onPhotoClick = {
 
-                    analysisVehicleCount = null
-                    analysisDensityLabel = null
+                        selectedAnalysisSource = "Foto"
 
-                    navController.navigate("video-roi")
+                        analysisVehicleCount = null
+                        analysisDensityLabel = null
+
+                        navController.navigate("upload-photo")
+                    },
+
+                    onWebcamClick = {
+
+                        selectedAnalysisSource = "Webcam Laptop"
+
+                        analysisVehicleCount = null
+                        analysisDensityLabel = null
+
+                        navController.navigate("webcam")
+                    },
+
+                    onVideoClick = {
+
+                        selectedAnalysisSource = "Video"
+
+                        analysisVehicleCount = null
+                        analysisDensityLabel = null
+
+                        navController.navigate("upload-video")
+                    }
+                )
+            }
+
+            // =================================================
+            // 5. KAMERA HP
+            // =================================================
+
+            composable("camera") {
+
+                val trafficLight = simulationSetup.trafficLight
+                val trafficGroup = when (trafficLight.uppercase()) {
+                    "TL1", "TL2" -> "A"
+                    "TL5", "TL6" -> "B"
+                    "TL3", "TL4" -> "C"
+                    else -> simulationSetup.trafficGroup
                 }
-            )
-        }
 
-        // =================================================
-        // 11. EDITOR POLYGON ROI VIDEO
-        // =================================================
+                CameraScreen(
+                    trafficLight = trafficLight,
+                    trafficGroup = trafficGroup,
+                    onBack = { navController.popBackStack() },
+                    onCaptureForAnalysis = { uri, roi ->
+                        selectedPhotoUri = uri
+                        selectedPhotoRoi = roi
+                        selectedAnalysisSource = "Kamera HP"
+                        analysisVehicleCount = null
+                        analysisDensityLabel = null
+                        navController.navigate("photo-analysis")
+                    }
+                )
+            }
 
-        composable("video-roi") {
+            // =================================================
+            // 6. UNGGAH FOTO
+            // =================================================
 
-            EditorRoiScreen(
+            composable("upload-photo") {
 
-                imageUri = selectedVideo?.roiFrameUri,
+                val trafficLight = simulationSetup.trafficLight
 
-                trafficLight = simulationSetup.trafficLight,
+                val trafficGroup = when (
+                    trafficLight.uppercase()
+                ) {
 
-                trafficGroup = simulationSetup.trafficGroup,
+                    "TL1", "TL2" -> "A"
 
-                onBack = {
+                    "TL5", "TL6" -> "B"
 
-                    navController.popBackStack()
-                },
+                    "TL3", "TL4" -> "C"
 
-                onContinue = { roi ->
-
-                    selectedVideoRoi = roi
-
-                    navController.navigate("video-analysis")
+                    else -> simulationSetup.trafficGroup
                 }
-            )
-        }
 
-        // =================================================
-        // 12. HASIL ANALISIS VIDEO
-        // =================================================
+                PhotoUploadScreen(
 
-        composable("video-analysis") {
+                    trafficLight = trafficLight,
 
-            VideoAnalysisScreen(
+                    trafficGroup = trafficGroup,
 
-                video = selectedVideo,
+                    selectedImageUri = selectedPhotoUri,
 
-                roi = selectedVideoRoi,
+                    onImageSelected = { uri ->
 
-                trafficLight = simulationSetup.trafficLight,
+                        selectedPhotoUri = uri
 
-                trafficGroup = simulationSetup.trafficGroup,
+                        // ROI lama tidak berlaku jika foto diganti.
 
-                onBack = {
+                        selectedPhotoRoi = null
 
-                    navController.popBackStack()
-                },
+                        analysisVehicleCount = null
+                        analysisDensityLabel = null
+                    },
 
-                onRetryAnalysis = {
+                    onBack = {
 
-                    navController.popBackStack(
-                        "video-roi",
-                        false
-                    )
-                },
+                        navController.popBackStack()
+                    },
 
-                onStartSimulation = {
+                    onContinue = {
 
-                    navController.navigate(
-                        "ambulance-simulation"
-                    )
-                },
+                        if (selectedPhotoUri != null) {
 
-                densityConfig = densityConfig,
+                            selectedPhotoRoi = null
 
-                onAnalysisCompleted = { result ->
-                    // Klasifikasi video menggunakan rata-rata jumlah kendaraan
-                    // pada frame/interval yang dianalisis, bukan akumulasi semua frame.
-                    analysisVehicleCount = result.averageVehicles.roundToInt()
-                },
+                            navController.navigate("photo-roi")
+                        }
+                    }
+                )
+            }
 
-                onDensityClassified = { vehicleCount, densityLabel ->
-                    analysisVehicleCount = vehicleCount
-                    analysisDensityLabel = densityLabel
-                }
-            )
-        }
+            // =================================================
+            // 7. EDITOR POLYGON ROI FOTO
+            // =================================================
 
-        // =================================================
-        // 13. SIMULASI AMBULANS
-        // =================================================
+            composable("photo-roi") {
 
-        composable("ambulance-simulation") {
+                EditorRoiScreen(
 
-            val config = trafficMapConfig
+                    imageUri = selectedPhotoUri,
 
-            when {
+                    trafficLight = simulationSetup.trafficLight,
 
-                config != null -> {
+                    trafficGroup = simulationSetup.trafficGroup,
 
-                    val summaryContext =
-                        SimulationSummaryData(
+                    onBack = {
 
-                            trafficLight =
-                                simulationSetup.trafficLight,
+                        navController.popBackStack()
+                    },
 
-                            trafficGroup =
-                                simulationSetup.trafficGroup,
+                    onContinue = { roi ->
 
-                            initialSignal =
-                                initialSignal,
+                        selectedPhotoRoi = roi
 
-                            sourceLabel =
-                                selectedAnalysisSource,
+                        navController.navigate("photo-analysis")
+                    }
+                )
+            }
 
-                            vehicleCount =
-                                analysisVehicleCount,
+            // =================================================
+            // 8. HASIL ANALISIS FOTO
+            // =================================================
 
-                            densityLabel =
-                                analysisDensityLabel,
+            composable("photo-analysis") {
 
-                            initialDistanceMeters =
-                                simulationSetup.initialDistance,
+                PhotoAnalysisScreen(
 
-                            targetDurationSeconds =
-                                simulationSetup.durationSeconds,
+                    imageUri = selectedPhotoUri,
 
-                            actualDurationSeconds =
-                                0.0
+                    roi = selectedPhotoRoi,
+
+                    trafficLight = simulationSetup.trafficLight,
+
+                    trafficGroup = simulationSetup.trafficGroup,
+
+                    onBack = {
+
+                        navController.popBackStack()
+                    },
+
+                    onRetake = {
+
+                        selectedPhotoRoi = null
+                        analysisVehicleCount = null
+                        analysisDensityLabel = null
+
+                        val sourceRoute = when (selectedAnalysisSource) {
+                            "Kamera HP" -> "camera"
+                            "Webcam Laptop" -> "webcam"
+                            else -> "upload-photo"
+                        }
+
+                        navController.popBackStack(sourceRoute, false)
+                    },
+
+                    onStartSimulation = {
+
+                        navController.navigate(
+                            "ambulance-simulation"
                         )
+                    },
 
-                    AmbulanceSimulationScreen(
+                    densityConfig = densityConfig,
 
-                        config = config,
+                    onAnalysisCompleted = { result ->
+                        analysisVehicleCount = result.counts.total
+                    },
 
-                        setup = simulationSetup,
+                    onDensityClassified = { vehicleCount, densityLabel ->
+                        analysisVehicleCount = vehicleCount
+                        analysisDensityLabel = densityLabel
+                    }
+                )
+            }
 
-                        summaryContext = summaryContext,
+            // =================================================
+            // 9. WEBCAM LAPTOP
+            // =================================================
 
-                        onBack = {
+            composable("webcam") {
 
-                            navController.popBackStack()
-                        },
+                val trafficLight = simulationSetup.trafficLight
+                val trafficGroup = when (trafficLight.uppercase()) {
+                    "TL1", "TL2" -> "A"
+                    "TL5", "TL6" -> "B"
+                    "TL3", "TL4" -> "C"
+                    else -> simulationSetup.trafficGroup
+                }
 
-                        onSimulationFinished = { finishedSummary ->
+                WebcamLaptopScreen(
+                    trafficLight = trafficLight,
+                    trafficGroup = trafficGroup,
+                    onBack = { navController.popBackStack() },
+                    onUseResult = { vehicleCount, densityLabel ->
+                        selectedAnalysisSource = "Webcam Laptop"
+                        analysisVehicleCount = vehicleCount
+                        analysisDensityLabel = densityLabel
+                        navController.navigate("ambulance-simulation")
+                    }
+                )
+            }
 
-                            // Simpan ringkasan untuk halaman berikutnya.
+            // 10. UNGGAH VIDEO
+            // =================================================
 
-                            currentSimulationSummary =
-                                finishedSummary
+            composable("upload-video") {
 
-                            // =================================
-                            // SIMPAN RIWAYAT FIREBASE
-                            // =================================
+                VideoUploadScreen(
 
-                            val historyRecord =
-                                SimulationHistoryRecord(
+                    trafficLight = simulationSetup.trafficLight,
 
-                                    trafficLight =
-                                        finishedSummary.trafficLight,
+                    trafficGroup = simulationSetup.trafficGroup,
 
-                                    trafficGroup =
-                                        finishedSummary.trafficGroup,
+                    onBack = {
 
-                                    initialSignal =
-                                        finishedSummary.initialSignal,
+                        navController.popBackStack()
+                    },
 
-                                    sourceLabel =
-                                        finishedSummary.sourceLabel,
+                    onContinue = { video ->
 
-                                    vehicleCount =
-                                        finishedSummary.vehicleCount,
+                        selectedVideo = video
 
-                                    densityLabel =
-                                        finishedSummary.densityLabel,
+                        selectedVideoRoi = null
 
-                                    initialDistanceMeters =
-                                        finishedSummary.initialDistanceMeters,
+                        analysisVehicleCount = null
+                        analysisDensityLabel = null
 
-                                    targetDurationSeconds =
-                                        finishedSummary.targetDurationSeconds,
+                        navController.navigate("video-roi")
+                    }
+                )
+            }
 
-                                    actualDurationSeconds =
-                                        finishedSummary.actualDurationSeconds,
+            // =================================================
+            // 11. EDITOR POLYGON ROI VIDEO
+            // =================================================
 
-                                    completedAtMillis =
-                                        finishedSummary.completedAtMillis
-                                )
+            composable("video-roi") {
 
-                            historyRepository.saveHistory(
+                EditorRoiScreen(
 
-                                record = historyRecord
+                    imageUri = selectedVideo?.roiFrameUri,
 
-                            ) { success, error ->
+                    trafficLight = simulationSetup.trafficLight,
 
-                                if (!success) {
+                    trafficGroup = simulationSetup.trafficGroup,
 
-                                    Log.e(
-                                        "SimulationHistory",
-                                        error ?: "Gagal menyimpan riwayat."
+                    onBack = {
+
+                        navController.popBackStack()
+                    },
+
+                    onContinue = { roi ->
+
+                        selectedVideoRoi = roi
+
+                        navController.navigate("video-analysis")
+                    }
+                )
+            }
+
+            // =================================================
+            // 12. HASIL ANALISIS VIDEO
+            // =================================================
+
+            composable("video-analysis") {
+
+                VideoAnalysisScreen(
+
+                    video = selectedVideo,
+
+                    roi = selectedVideoRoi,
+
+                    trafficLight = simulationSetup.trafficLight,
+
+                    trafficGroup = simulationSetup.trafficGroup,
+
+                    onBack = {
+
+                        navController.popBackStack()
+                    },
+
+                    onRetryAnalysis = {
+
+                        navController.popBackStack(
+                            "video-roi",
+                            false
+                        )
+                    },
+
+                    onStartSimulation = {
+
+                        navController.navigate(
+                            "ambulance-simulation"
+                        )
+                    },
+
+                    densityConfig = densityConfig,
+
+                    onAnalysisCompleted = { result ->
+                        // Klasifikasi video menggunakan rata-rata jumlah kendaraan
+                        // pada frame/interval yang dianalisis, bukan akumulasi semua frame.
+                        analysisVehicleCount = result.averageVehicles.roundToInt()
+                    },
+
+                    onDensityClassified = { vehicleCount, densityLabel ->
+                        analysisVehicleCount = vehicleCount
+                        analysisDensityLabel = densityLabel
+                    }
+                )
+            }
+
+            // =================================================
+            // 13. SIMULASI AMBULANS
+            // =================================================
+
+            composable("ambulance-simulation") {
+
+                val config = trafficMapConfig
+
+                when {
+
+                    config != null -> {
+
+                        val summaryContext =
+                            SimulationSummaryData(
+
+                                trafficLight =
+                                    simulationSetup.trafficLight,
+
+                                trafficGroup =
+                                    simulationSetup.trafficGroup,
+
+                                initialSignal =
+                                    initialSignal,
+
+                                sourceLabel =
+                                    selectedAnalysisSource,
+
+                                vehicleCount =
+                                    analysisVehicleCount,
+
+                                densityLabel =
+                                    analysisDensityLabel,
+
+                                initialDistanceMeters =
+                                    simulationSetup.initialDistance,
+
+                                targetDurationSeconds =
+                                    simulationSetup.durationSeconds,
+
+                                actualDurationSeconds =
+                                    0.0
+                            )
+
+                        AmbulanceSimulationScreen(
+
+                            config = config,
+
+                            setup = simulationSetup,
+
+                            summaryContext = summaryContext,
+
+                            onBack = {
+
+                                navController.popBackStack()
+                            },
+
+                            onSimulationFinished = { finishedSummary ->
+
+                                // Simpan ringkasan untuk halaman berikutnya.
+
+                                currentSimulationSummary =
+                                    finishedSummary
+
+                                // =================================
+                                // SIMPAN RIWAYAT FIREBASE
+                                // =================================
+
+                                val historyRecord =
+                                    SimulationHistoryRecord(
+
+                                        trafficLight =
+                                            finishedSummary.trafficLight,
+
+                                        trafficGroup =
+                                            finishedSummary.trafficGroup,
+
+                                        initialSignal =
+                                            finishedSummary.initialSignal,
+
+                                        sourceLabel =
+                                            finishedSummary.sourceLabel,
+
+                                        vehicleCount =
+                                            finishedSummary.vehicleCount,
+
+                                        densityLabel =
+                                            finishedSummary.densityLabel,
+
+                                        initialDistanceMeters =
+                                            finishedSummary.initialDistanceMeters,
+
+                                        targetDurationSeconds =
+                                            finishedSummary.targetDurationSeconds,
+
+                                        actualDurationSeconds =
+                                            finishedSummary.actualDurationSeconds,
+
+                                        completedAtMillis =
+                                            finishedSummary.completedAtMillis
                                     )
+
+                                historyRepository.saveHistory(
+
+                                    record = historyRecord
+
+                                ) { success, error ->
+
+                                    if (!success) {
+
+                                        Log.e(
+                                            "SimulationHistory",
+                                            error ?: "Gagal menyimpan riwayat."
+                                        )
+                                    }
+                                }
+
+                                // =================================
+                                // BUKA RINGKASAN
+                                // =================================
+
+                                navController.navigate(
+                                    "simulation-summary"
+                                ) {
+
+                                    popUpTo(
+                                        "ambulance-simulation"
+                                    ) {
+                                        inclusive = true
+                                    }
+
+                                    launchSingleTop = true
                                 }
                             }
+                        )
+                    }
 
-                            // =================================
-                            // BUKA RINGKASAN
-                            // =================================
+                    mapLoading -> {
 
-                            navController.navigate(
-                                "simulation-summary"
-                            ) {
+                        PlaceholderScreen(
 
-                                popUpTo(
-                                    "ambulance-simulation"
-                                ) {
-                                    inclusive = true
+                            title = "Memuat konfigurasi peta",
+
+                            subtitle =
+                                "Android sedang mengambil konfigurasi koordinat dari Firebase.",
+
+                            onBack = {
+
+                                navController.popBackStack()
+                            }
+                        )
+                    }
+
+                    else -> {
+
+                        PlaceholderScreen(
+
+                            title = "Konfigurasi Firebase gagal",
+
+                            subtitle = mapConfigMessage
+                                ?: "Data konfigurasi peta belum tersedia.",
+
+                            onBack = {
+
+                                navController.popBackStack()
+                            }
+                        )
+                    }
+                }
+            }
+
+            // =================================================
+            // 14. RINGKASAN SIMULASI
+            // =================================================
+
+            composable("simulation-summary") {
+
+                val summary = currentSimulationSummary
+
+                if (summary != null) {
+
+                    SimulationSummaryScreen(
+
+                        summary = summary,
+
+                        onBackToHome = {
+
+                            navController.navigate("home") {
+
+                                popUpTo("home") {
+                                    inclusive = false
                                 }
 
                                 launchSingleTop = true
                             }
                         }
                     )
-                }
 
-                mapLoading -> {
+                } else {
 
                     PlaceholderScreen(
 
-                        title = "Memuat konfigurasi peta",
+                        title = "Ringkasan tidak tersedia",
 
                         subtitle =
-                            "Android sedang mengambil konfigurasi koordinat dari Firebase.",
-
-                        onBack = {
-
-                            navController.popBackStack()
-                        }
-                    )
-                }
-
-                else -> {
-
-                    PlaceholderScreen(
-
-                        title = "Konfigurasi Firebase gagal",
-
-                        subtitle = mapConfigMessage
-                            ?: "Data konfigurasi peta belum tersedia.",
+                            "Data hasil simulasi belum tersedia.",
 
                         onBack = {
 
@@ -1057,21 +1124,14 @@ fun AppNavigation() {
                     )
                 }
             }
-        }
 
-        // =================================================
-        // 14. RINGKASAN SIMULASI
-        // =================================================
+            // =================================================
+            // 15. RIWAYAT SIMULASI
+            // =================================================
 
-        composable("simulation-summary") {
+            composable("history") {
 
-            val summary = currentSimulationSummary
-
-            if (summary != null) {
-
-                SimulationSummaryScreen(
-
-                    summary = summary,
+                HistoryScreen(
 
                     onBackToHome = {
 
@@ -1085,44 +1145,7 @@ fun AppNavigation() {
                         }
                     }
                 )
-
-            } else {
-
-                PlaceholderScreen(
-
-                    title = "Ringkasan tidak tersedia",
-
-                    subtitle =
-                        "Data hasil simulasi belum tersedia.",
-
-                    onBack = {
-
-                        navController.popBackStack()
-                    }
-                )
             }
-        }
-
-        // =================================================
-        // 15. RIWAYAT SIMULASI
-        // =================================================
-
-        composable("history") {
-
-            HistoryScreen(
-
-                onBackToHome = {
-
-                    navController.navigate("home") {
-
-                        popUpTo("home") {
-                            inclusive = false
-                        }
-
-                        launchSingleTop = true
-                    }
-                }
-            )
         }
     }
 
@@ -1131,6 +1154,7 @@ fun AppNavigation() {
     // =====================================================
 
     if (
+        !showSplash &&
         showMapConfigDialog &&
         mapConfigMessage != null
     ) {
