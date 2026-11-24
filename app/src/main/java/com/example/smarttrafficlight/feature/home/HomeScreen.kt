@@ -79,7 +79,8 @@ data class HomeUiState(
 fun HomeScreen(
     onStartSimulation: () -> Unit,
     onOpenHistory: () -> Unit,
-    uiState: HomeUiState = HomeUiState()
+    uiState: HomeUiState = HomeUiState(),
+    onOpenDensitySettings: () -> Unit = {}
 ) {
     Scaffold(
         containerColor = BackgroundLight,
@@ -122,6 +123,61 @@ fun HomeScreen(
 
                 TrafficGroupsCard(groups = uiState.groups)
             }
+
+            DensitySettingsShortcut(onClick = onOpenDensitySettings)
+        }
+    }
+}
+
+
+@Composable
+private fun DensitySettingsShortcut(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        color = SurfaceWhite,
+        border = BorderStroke(1.dp, BorderLight)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(PrimaryRed.copy(alpha = 0.10f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "⚙",
+                    color = PrimaryRedDark,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Pengaturan Analisis",
+                    color = TextPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Atur batas klasifikasi kepadatan untuk semua sumber",
+                    color = TextSecondary,
+                    fontSize = 11.sp
+                )
+            }
+            Text(
+                text = "›",
+                color = TextSecondary,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Light
+            )
         }
     }
 }

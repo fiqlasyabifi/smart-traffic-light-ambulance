@@ -52,9 +52,13 @@ import com.example.smarttrafficlight.ui.theme.SurfaceWhite
 import com.example.smarttrafficlight.ui.theme.TextPrimary
 import com.example.smarttrafficlight.ui.theme.TextSecondary
 
+import com.example.smarttrafficlight.data.firebase.DensityConfig
+import com.example.smarttrafficlight.data.analysis.DensityClassifier
+
 import kotlinx.coroutines.CancellationException
 
 import java.util.Locale
+import kotlin.math.roundToInt
 
 
 // =====================================================
@@ -78,7 +82,11 @@ fun VideoAnalysisScreen(
 
     onStartSimulation: () -> Unit,
 
-    onAnalysisCompleted: (VideoAnalysisSummary) -> Unit = {}
+    onAnalysisCompleted: (VideoAnalysisSummary) -> Unit = {},
+
+    densityConfig: DensityConfig = DensityConfig.DEFAULT,
+
+    onDensityClassified: (vehicleCount: Int, densityLabel: String) -> Unit = { _, _ -> }
 
 ) {
 
@@ -193,6 +201,19 @@ fun VideoAnalysisScreen(
 
             isAnalyzing = false
         }
+    }
+
+    // =================================================
+    // KLASIFIKASI KEPADATAN BERDASARKAN RATA-RATA INTERVAL
+    // =====================================================
+
+    LaunchedEffect(summary, densityConfig) {
+        val result = summary ?: return@LaunchedEffect
+        val sampledCounts = result.intervals.map { it.totalVehicles }
+        val representativeCount = DensityClassifier.averageSampledFrameCount(sampledCounts)
+            ?: result.averageVehicles.roundToInt()
+        val label = DensityClassifier.classify(representativeCount, densityConfig)
+        onDensityClassified(representativeCount, label)
     }
 
     // =================================================
@@ -790,20 +811,38 @@ fun VideoAnalysisScreen(
                             color = TextPrimary
                         )
 
+                        val sampledCounts = result.intervals.map { it.totalVehicles }
+                        val densityAverageCount =
+                            DensityClassifier.averageSampledFrameCount(sampledCounts)
+                                ?: result.averageVehicles.roundToInt()
+                        val densityLabel = DensityClassifier.classify(
+                            densityAverageCount,
+                            densityConfig
+                        )
+                        val densityColor = when (densityLabel) {
+                            DensityClassifier.LOW -> Color(0xFF17794A)
+                            DensityClassifier.MEDIUM -> Color(0xFF9A6700)
+                            DensityClassifier.HIGH -> Color(0xFFB42318)
+                            else -> TextSecondary
+                        }
+
                         Text(
-                            text = "Belum diklasifikasikan",
-                            color = TextSecondary,
-                            fontWeight = FontWeight.SemiBold
+                            text = densityLabel,
+                            color = densityColor,
+                            fontWeight = FontWeight.Bold
                         )
 
                         Text(
-                            text =
-                                "Rata-rata dan puncak kendaraan sudah dihitung " +
-                                        "berdasarkan Bottom Center di dalam polygon ROI. " +
-                                        "Ambang kategori kepadatan belum ditetapkan.",
-
+                            text = if (densityConfig.enabled) {
+                                "Klasifikasi menggunakan rata-rata $densityAverageCount kendaraan " +
+                                        "dari ${result.intervals.size} interval sampel. " +
+                                        "Rendah: 0–${densityConfig.lowMax}; " +
+                                        "Sedang: ${densityConfig.lowMax + 1}–${densityConfig.mediumMax}; " +
+                                        "Tinggi: di atas ${densityConfig.mediumMax}."
+                            } else {
+                                "Klasifikasi kepadatan sedang dinonaktifkan pada Pengaturan Analisis."
+                            },
                             style = MaterialTheme.typography.bodySmall,
-
                             color = TextSecondary
                         )
                     }

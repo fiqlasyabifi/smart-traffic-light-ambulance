@@ -62,6 +62,9 @@ import com.example.smarttrafficlight.ui.theme.SurfaceWhite
 import com.example.smarttrafficlight.ui.theme.TextPrimary
 import com.example.smarttrafficlight.ui.theme.TextSecondary
 
+import com.example.smarttrafficlight.data.firebase.DensityConfig
+import com.example.smarttrafficlight.data.analysis.DensityClassifier
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -103,7 +106,11 @@ fun PhotoAnalysisScreen(
 
     onStartSimulation: () -> Unit,
 
-    onAnalysisCompleted: (YoloAnalysisResult) -> Unit = {}
+    onAnalysisCompleted: (YoloAnalysisResult) -> Unit = {},
+
+    densityConfig: DensityConfig = DensityConfig.DEFAULT,
+
+    onDensityClassified: (vehicleCount: Int, densityLabel: String) -> Unit = { _, _ -> }
 
 ) {
 
@@ -257,6 +264,17 @@ fun PhotoAnalysisScreen(
 
             isLoading = false
         }
+    }
+
+    // =================================================
+    // KLASIFIKASI DENSITAS DARI KONFIGURASI FIREBASE
+    // =====================================================
+
+    LaunchedEffect(analysisOutput?.result, densityConfig) {
+        val result = analysisOutput?.result ?: return@LaunchedEffect
+        val count = result.counts.total
+        val label = DensityClassifier.classify(count, densityConfig)
+        onDensityClassified(count, label)
     }
 
     // =================================================
@@ -666,20 +684,33 @@ fun PhotoAnalysisScreen(
                             fontWeight = FontWeight.Bold
                         )
 
+                        val densityLabel = DensityClassifier.classify(
+                            output.result.counts.total,
+                            densityConfig
+                        )
+                        val densityColor = when (densityLabel) {
+                            DensityClassifier.LOW -> Color(0xFF17794A)
+                            DensityClassifier.MEDIUM -> Color(0xFF9A6700)
+                            DensityClassifier.HIGH -> Color(0xFFB42318)
+                            else -> TextSecondary
+                        }
+
                         Text(
-                            text = "Belum diklasifikasikan",
-                            color = TextSecondary,
-                            fontWeight = FontWeight.SemiBold
+                            text = densityLabel,
+                            color = densityColor,
+                            fontWeight = FontWeight.Bold
                         )
 
                         Text(
-                            text =
-                                "Total kendaraan sudah dihitung berdasarkan " +
-                                        "Bottom Center di dalam polygon ROI. " +
-                                        "Ambang kategori kepadatan belum ditetapkan.",
-
+                            text = if (densityConfig.enabled) {
+                                "Klasifikasi berdasarkan ${output.result.counts.total} kendaraan pada foto ini. " +
+                                        "Rendah: 0–${densityConfig.lowMax}; " +
+                                        "Sedang: ${densityConfig.lowMax + 1}–${densityConfig.mediumMax}; " +
+                                        "Tinggi: di atas ${densityConfig.mediumMax}."
+                            } else {
+                                "Klasifikasi kepadatan sedang dinonaktifkan pada Pengaturan Analisis."
+                            },
                             color = TextSecondary,
-
                             style = MaterialTheme.typography.bodySmall
                         )
                     }

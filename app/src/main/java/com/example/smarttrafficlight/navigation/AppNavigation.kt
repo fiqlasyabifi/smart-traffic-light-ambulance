@@ -4,6 +4,7 @@ import android.net.Uri
 import android.util.Log
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +34,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.ValueEventListener
 
 import com.example.smarttrafficlight.data.firebase.TrafficDashboardStatus
 import com.example.smarttrafficlight.data.firebase.TrafficMapConfig
@@ -40,6 +42,8 @@ import com.example.smarttrafficlight.data.firebase.TrafficMapRepository
 import com.example.smarttrafficlight.data.firebase.TrafficStatusRepository
 import com.example.smarttrafficlight.data.firebase.SimulationHistoryRecord
 import com.example.smarttrafficlight.data.firebase.SimulationHistoryRepository
+import com.example.smarttrafficlight.data.firebase.DensityConfig
+import com.example.smarttrafficlight.data.firebase.DensityConfigRepository
 
 import com.example.smarttrafficlight.feature.analysis.EditorRoiScreen
 import com.example.smarttrafficlight.feature.analysis.CameraScreen
@@ -53,6 +57,8 @@ import com.example.smarttrafficlight.feature.analysis.VideoSelection
 import com.example.smarttrafficlight.feature.analysis.VideoUploadScreen
 
 import com.example.smarttrafficlight.feature.history.HistoryScreen
+
+import com.example.smarttrafficlight.feature.settings.DensitySettingsScreen
 
 import com.example.smarttrafficlight.feature.home.HomeScreen
 import com.example.smarttrafficlight.feature.home.HomeUiState
@@ -69,6 +75,8 @@ import com.example.smarttrafficlight.feature.simulation.SimulationSummaryData
 import com.example.smarttrafficlight.feature.simulation.SimulationSummaryScreen
 
 import com.example.smarttrafficlight.ui.theme.BackgroundLight
+
+import kotlin.math.roundToInt
 
 
 @Composable
@@ -94,6 +102,10 @@ fun AppNavigation() {
 
     val historyRepository = remember {
         SimulationHistoryRepository()
+    }
+
+    val densityConfigRepository = remember {
+        DensityConfigRepository()
     }
 
     // =====================================================
@@ -186,6 +198,11 @@ fun AppNavigation() {
         )
     }
 
+    // Konfigurasi kepadatan bersama untuk semua sumber analisis.
+    var densityConfig by remember {
+        mutableStateOf(DensityConfig.DEFAULT)
+    }
+
     // =====================================================
     // STATE DASHBOARD
     // =====================================================
@@ -226,6 +243,29 @@ fun AppNavigation() {
 
         onDispose {
             stopListening?.invoke()
+        }
+    }
+
+    // =====================================================
+    // FIREBASE LISTENER KONFIGURASI KEPADATAN
+    // =====================================================
+
+    DisposableEffect(firebaseAuthenticated, densityConfigRepository) {
+        var configListener: ValueEventListener? = null
+
+        if (firebaseAuthenticated) {
+            configListener = densityConfigRepository.addListener(
+                onConfig = { config ->
+                    densityConfig = config
+                },
+                onError = { error ->
+                    Log.e("DensityConfig", "Gagal membaca konfigurasi kepadatan", error.toException())
+                }
+            )
+        }
+
+        onDispose {
+            configListener?.let(densityConfigRepository::removeListener)
         }
     }
 
@@ -348,20 +388,31 @@ fun AppNavigation() {
         // =================================================
 
         composable("home") {
-
             HomeScreen(
-
                 onStartSimulation = {
-
                     navController.navigate("setup")
                 },
-
                 onOpenHistory = {
-
                     navController.navigate("history")
                 },
-
+                onOpenDensitySettings = {
+                    navController.navigate("density-settings") {
+                        launchSingleTop = true
+                    }
+                },
                 uiState = dashboardStatus.toHomeUiState()
+            )
+        }
+
+        // =================================================
+        // PENGATURAN KLASIFIKASI KEPADATAN
+        // =================================================
+
+        composable("density-settings") {
+            DensitySettingsScreen(
+                onBack = {
+                    navController.popBackStack()
+                }
             )
         }
 
@@ -689,10 +740,15 @@ fun AppNavigation() {
                     )
                 },
 
-                onAnalysisCompleted = { result ->
+                densityConfig = densityConfig,
 
-                    analysisVehicleCount =
-                        result.counts.total
+                onAnalysisCompleted = { result ->
+                    analysisVehicleCount = result.counts.total
+                },
+
+                onDensityClassified = { vehicleCount, densityLabel ->
+                    analysisVehicleCount = vehicleCount
+                    analysisDensityLabel = densityLabel
                 }
             )
         }
@@ -818,13 +874,17 @@ fun AppNavigation() {
                     )
                 },
 
+                densityConfig = densityConfig,
+
                 onAnalysisCompleted = { result ->
+                    // Klasifikasi video menggunakan rata-rata jumlah kendaraan
+                    // pada frame/interval yang dianalisis, bukan akumulasi semua frame.
+                    analysisVehicleCount = result.averageVehicles.roundToInt()
+                },
 
-                    // Untuk video, angka yang diteruskan
-                    // adalah jumlah kendaraan pada interval puncak.
-
-                    analysisVehicleCount =
-                        result.peakVehicles
+                onDensityClassified = { vehicleCount, densityLabel ->
+                    analysisVehicleCount = vehicleCount
+                    analysisDensityLabel = densityLabel
                 }
             )
         }
